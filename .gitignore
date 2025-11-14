@@ -1,0 +1,71 @@
+# -----------------------------
+# Python
+# -----------------------------
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+
+# Virtual environment
+venv/
+env/
+.venv/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# -----------------------------
+# Project data files
+# -----------------------------
+
+# Ignore ALL parquet files
+*.parquet
+
+# Ignore other large data file types
+*.pdf
+*.csv
+*.tsv
+*.jsonl
+*.pickle
+*.pkl
+*.joblib
+*.h5
+*.hdf5
+*.txt
+
+# Ignore large raw data folders
+My_Datasets/
+My_Models/
+Enriched_Datasets/
+Extracted_Texts/
+lpavenv/
+CJPE-Main/
+data/
+logs/
+checkpoints/
+models/
+artifacts/
+saved_models/
+outputs/
+intermediate/
+
+# -----------------------------
+# IDE files
+# -----------------------------
+.vscode/
+.idea/
+
+# -----------------------------
+# OS files
+# -----------------------------
+.DS_Store
+Thumbs.db
+
+# -----------------------------
+# Build & cache
+# -----------------------------
+build/
+dist/
+*.egg-info/
+.cache/
