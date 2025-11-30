@@ -1,45 +1,63 @@
-# fast_legalbert_train.py
-# Copy/paste this and run. Adjust paths/params at top as needed.
+#!/usr/bin/env python
+# coding: utf-8
+
+# In[1]:
+
 
 import os
 import random
 import math
 import time
 from pathlib import Path
-
 import pandas as pd
 import numpy as np
 from tqdm.auto import tqdm
-
 import torch
 from torch.utils.data import TensorDataset, DataLoader, random_split
 from torch.optim import AdamW
 from sklearn.metrics import accuracy_score, f1_score, confusion_matrix
-
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
+
+
+# In[2]:
+
 
 # ---------------------------
 # CONFIG (tweak if needed)
 # ---------------------------
-
 start = int(input("Enter Start Year: "))
 end = int(input("Enter Ending Year: "))
-
 DATA_PATH = f"D:/LPA_MTech_Project/Enriched_Datasets/SupremeCourt_Combined_{start}_{end}_enriched.parquet"
-MODEL_NAME = "nlpaueb/legal-bert-base-uncased"
-OUTPUT_DIR = f"My_Models/legalbert_fast_out_{start}-{end}"
+# MODEL_NAME = "nlpaueb/legal-bert-base-uncased"
+MODEL_NAME = "prajjwal1/bert-small"
+OUTPUT_DIR = f"My_Models/LegalBERT_Models/legalbert_fast_out_{start}-{end}"
 SEED = 42
 
+
+# In[3]:
+
+
 # Preprocessing / tokenization
-MAX_WORDS = 350          # keep first ~350 words (~512 tokens or fewer)
-MAX_LENGTH = 512         # tokenizer max tokens
-BATCH_SIZE = 4           # try 4; reduce to 2 if OOM
-EPOCHS = 3
+MAX_WORDS = 120          # keep first ~350 words (~512 tokens or fewer)
+MAX_LENGTH = 128        # tokenizer max tokens
+BATCH_SIZE = 4          # try 4; reduce to 2 if OOM
+# Max Epochs should be 5 for a combined dataset on local device
+# 3 works fine too
+EPOCHS = 5
 LR = 2e-5
 WEIGHT_DECAY = 0.01
 
+
+# In[4]:
+
+
 # Device
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+
+# In[5]:
+
 
 # ---------------------------
 # Utilities / Seed
@@ -59,8 +77,13 @@ print("CUDA available:", torch.cuda.is_available())
 if torch.cuda.is_available():
     print("GPU:", torch.cuda.get_device_name(0))
 
+
+
+# In[6]:
+
+
 # ---------------------------
-# 1) Load & preprocess (PANDAS) BEFORE tokenization
+# 1 Load & preprocess (PANDAS) BEFORE tokenization
 # ---------------------------
 print("Loading parquet...")
 df = pd.read_parquet(DATA_PATH)
@@ -97,8 +120,12 @@ df.reset_index(drop=True, inplace=True)
 print("Dataset size:", len(df))
 print(df.head(2))
 
+
+# In[7]:
+
+
 # ---------------------------
-# 2) Tokenize ALL at once (fast)
+# 2 Tokenize ALL at once (fast)
 # ---------------------------
 print("Loading tokenizer & tokenizing...")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, use_fast=True)
@@ -122,8 +149,12 @@ labels_t = torch.tensor(labels, dtype=torch.long)
 
 print("Tokenized shape:", input_ids.shape)
 
+
+# In[8]:
+
+
 # ---------------------------
-# 3) Build TensorDataset and DataLoaders
+# 3 Build TensorDataset and DataLoaders
 # ---------------------------
 dataset = TensorDataset(input_ids, attention_mask, labels_t)
 
@@ -135,25 +166,66 @@ train_ds, test_ds = random_split(dataset, [train_n, test_n], generator=torch.Gen
 
 print(f"Train size: {len(train_ds)}  Test size: {len(test_ds)}")
 
-train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True, num_workers=0, pin_memory=True)
-test_loader  = DataLoader(test_ds,  batch_size=BATCH_SIZE, shuffle=False, num_workers=0, pin_memory=True)
+# train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True, num_workers=0, pin_memory=True)
+# test_loader  = DataLoader(test_ds,  batch_size=BATCH_SIZE, shuffle=False, num_workers=0, pin_memory=True)
+train_loader = DataLoader(
+    train_ds,
+    batch_size=BATCH_SIZE,
+    shuffle=True,
+    num_workers=0,                # CPU workers
+    pin_memory=True,
+    persistent_workers=False
+)
+
+test_loader = DataLoader(
+    test_ds,
+    batch_size=BATCH_SIZE,
+    shuffle=False,
+    num_workers=0,
+    pin_memory=True,
+    persistent_workers=False
+)
+
+
+
+# In[9]:
+
 
 # ---------------------------
-# 4) Model, optimizer, amp scaler
+# 4 Model, optimizer, amp scaler
 # ---------------------------
 print("Loading model...")
 model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME, num_labels=2)
 model.to(DEVICE)
 
-optimizer = AdamW(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
+# # Compile model for speed (works on PyTorch 2.x)
+# try:
+#     model = torch.compile(model)
+#     print("Model compiled successfully with torch.compile()")
+# except Exception as e:
+#     print("torch.compile() not supported:", e)
+
+    
+# optimizer = AdamW(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
+optimizer = AdamW(
+    model.parameters(),
+    lr=LR,
+    weight_decay=WEIGHT_DECAY,
+)
 scaler = torch.cuda.amp.GradScaler(enabled=torch.cuda.is_available())
 
 # Simple LR scheduler (optional)
 total_steps = len(train_loader) * EPOCHS
-scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=total_steps)  # or None
+# scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=total_steps)  # or None
+scheduler = None    # removes per-step overhead, simpler + faster
+
+
+
+# In[10]:
+
 
 # ---------------------------
-# 5) Training loop (fast)
+# 5 Training loop (fast)
 # ---------------------------
 def evaluate(model, loader):
     model.eval()
@@ -180,6 +252,10 @@ best_val_f1 = -1.0
 global_step = 0
 start_time = time.time()
 
+
+# In[11]:
+
+
 for epoch in range(EPOCHS):
     model.train()
     epoch_loss = 0.0
@@ -189,15 +265,17 @@ for epoch in range(EPOCHS):
 
         optimizer.zero_grad()
 
-        with torch.cuda.amp.autocast(enabled=torch.cuda.is_available()):
+        # with torch.cuda.amp.autocast(enabled=torch.cuda.is_available()):
+        with torch.amp.autocast("cuda", enabled=torch.cuda.is_available()):
             outputs = model(input_ids=input_ids_b, attention_mask=att_mask_b, labels=labels_b)
             loss = outputs.loss
 
         scaler.scale(loss).backward()
         scaler.step(optimizer)
         scaler.update()
-        if scheduler is not None:
-            scheduler.step()
+
+        # if scheduler is not None:
+        #     scheduler.step()
 
         epoch_loss += loss.item()
         global_step += 1
@@ -216,6 +294,12 @@ for epoch in range(EPOCHS):
         tokenizer.save_pretrained(os.path.join(OUTPUT_DIR, "best_model"))
         print(f"Saved best model (F1 {best_val_f1:.4f}) to {os.path.join(OUTPUT_DIR,'best_model')}")
 
+
+
+
+# In[12]:
+
+
 # Final evaluation
 final = evaluate(model, test_loader)
 print("Final evaluation on test set:")
@@ -223,7 +307,30 @@ print(f"Loss: {final['loss']:.4f}  Acc: {final['accuracy']:.4f}  F1: {final['f1'
 print("Confusion Matrix:")
 print(confusion_matrix(final["labels"], final["preds"]))
 
+
+# In[13]:
+
+
 # Save final
 model.save_pretrained(os.path.join(OUTPUT_DIR, "final_model"))
 tokenizer.save_pretrained(os.path.join(OUTPUT_DIR, "final_model"))
 print("Saved final model to", os.path.join(OUTPUT_DIR, "final_model"))
+
+
+# In[ ]:
+
+
+
+
+
+# In[ ]:
+
+
+
+
+
+# In[ ]:
+
+
+
+
