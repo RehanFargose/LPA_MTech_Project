@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[9]:
+# In[1]:
 
 
 import os, re, json
@@ -11,7 +11,7 @@ import fitz  # PyMuPDF
 from pathlib import Path
 
 
-# In[10]:
+# In[2]:
 
 
 # -------------------------------------------------------------------
@@ -113,7 +113,7 @@ def clean_case_text_keep_structure(text):
     return joined.strip()
 
 
-# In[11]:
+# In[3]:
 
 
 def extract_light_metadata(text):
@@ -136,7 +136,7 @@ def extract_light_metadata(text):
     return meta
 
 
-# In[12]:
+# In[4]:
 
 
 def extract_text_fitz(pdf_path, txt_path, meta_path=None):
@@ -175,7 +175,7 @@ def extract_text_fitz(pdf_path, txt_path, meta_path=None):
         print(f"⚠️ Error: {pdf_path} → {e}")
 
 
-# In[13]:
+# In[5]:
 
 
 START = int(input("Enter Start Year: "))
@@ -187,7 +187,7 @@ OUT_DIR  = f"D:/LPA_MTech_Project/Extracted_Texts/Texts_{START}-{END}"
 os.makedirs(OUT_DIR, exist_ok=True)
 
 
-# In[14]:
+# In[6]:
 
 
 def collect_pdfs(base_dir, start, end):
@@ -208,7 +208,7 @@ def collect_pdfs(base_dir, start, end):
 pdf_files = collect_pdfs(BASE_DIR, START, END)
 
 
-# In[15]:
+# In[7]:
 
 
 with ThreadPoolExecutor(max_workers=6) as ex:
@@ -221,7 +221,7 @@ with ThreadPoolExecutor(max_workers=6) as ex:
 print("✔ DONE — Text + metadata saved to:", OUT_DIR)
 
 
-# In[16]:
+# In[8]:
 
 
 sample = Path(pdf_files[0]).stem
@@ -231,7 +231,7 @@ with open(os.path.join(OUT_DIR, sample + ".txt"), "r", encoding="utf-8") as f:
     print(f.read()[:2000])
 
 
-# In[17]:
+# In[9]:
 
 
 with open(os.path.join(OUT_DIR, sample + ".meta.json"), "r", encoding="utf-8") as f:
