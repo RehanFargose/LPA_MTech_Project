@@ -18,7 +18,7 @@
 # jupyter nbconvert --to python Download_HC_Family_Cases.ipynb
 
 
-# In[ ]:
+# In[3]:
 
 
 import os
@@ -152,26 +152,37 @@ print("Rows loaded:", len(meta))
 print("Columns:", meta.columns.tolist())
 
 
-# In[ ]:
+# In[8]:
 
 
 # --------- NORMALIZE PDF FILENAME COLUMN ---------
+if "judgment_filename" in meta.columns:
+    meta["pdf_name"] = meta["judgment_filename"]
 
-if "pdf_link" in meta.columns:
-    meta["pdf_name"] = meta["pdf_link"].apply(
-        lambda x: os.path.basename(urlparse(x).path) if isinstance(x, str) else None
+elif "file_name" in meta.columns:
+    meta["pdf_name"] = meta["file_name"]
+
+elif "pdf_link" in meta.columns:
+    meta["pdf_name"] = (
+        meta["pdf_link"]
+        .fillna("")
+        .astype(str)
+        .str.split("/")
+        .str[-1]
     )
+
+
 else:
-    raise RuntimeError("❌ pdf_link column not found in HC metadata")
+    raise RuntimeError("❌ Cannot find PDF filename column in HC metadata")
 
 
-# In[ ]:
+# In[9]:
 
 
 meta[["pdf_link", "pdf_name"]].head()
 
 
-# In[ ]:
+# In[10]:
 
 
 # --------- SAFETY: Ensure expected columns exist ---------
@@ -180,14 +191,14 @@ for col in ["case_type", "act_names", "case_title"]:
         meta[col] = ""
 
 
-# In[ ]:
+# In[11]:
 
 
 # --------- FILTER: YEAR RANGE ----------
 meta = meta[(meta["year"] >= START_YEAR) & (meta["year"] <= END_YEAR)]
 
 
-# In[ ]:
+# In[12]:
 
 
 # --------- FILTER: FAMILY LAW ----------
@@ -207,26 +218,109 @@ def is_family_case(row):
 
 
 
-# In[ ]:
+# In[13]:
 
 
-family_df = meta[meta.apply(is_family_case, axis=1)]
+meta["__search_text"] = (
+    meta["title"].fillna("") + " " +
+    meta["description"].fillna("") + " " +
+    meta["disposal_nature"].fillna("")
+).str.lower()
+
+
+meta["__search_text"] = meta["__search_text"].str.replace(
+    r"[^a-z0-9]", " ", regex=True
+)
+
+family_mask = (
+    meta["__search_text"].str.contains(
+        "|".join(map(re.escape, FAMILY_KEYWORDS)),
+        na=False
+    )
+    |
+    meta["__search_text"].str.contains(
+        "|".join(map(re.escape, FAMILY_ACTS)),
+        na=False
+    )
+    |
+    meta["__search_text"].str.contains(
+        r"\b(" + "|".join(map(re.escape, FAMILY_IPC)) + r")\b",
+        na=False
+    )
+    |
+    meta["__search_text"].str.contains("family", na=False)
+)
+
+family_df = meta[family_mask]
+
+meta.drop(columns="__search_text", inplace=True)
+
 print(f"✅ Family law cases identified: {len(family_df)}")
 
 
-# In[ ]:
+# In[14]:
 
 
 # --------- GROUP BY TAR LOCATION -------
 groups = family_df.groupby(["year", "court", "bench"])
 
 
-# In[ ]:
+# In[15]:
 
 
-# --------- DOWNLOAD + EXTRACT ----------
+# # --------- DOWNLOAD + EXTRACT ----------
 
-groups = family_df.groupby(["year", "court", "bench"])
+# groups = family_df.groupby(["year", "court", "bench"])
+
+# for (year, court, bench), group_df in tqdm(groups, desc="Processing groups"):
+
+#     local_group_dir = Path(LOCAL_BASE_DIR) / str(year) / court / str(bench)
+#     extract_dir = local_group_dir / "pdfs"
+#     extract_dir.mkdir(parents=True, exist_ok=True)
+
+#     # Load tar index
+#     index_key = f"data/tar/year={year}/court={court}/bench={bench}/data.index.json"
+
+#     try:
+#         obj = s3.get_object(Bucket=BUCKET_NAME, Key=index_key)
+#         index_data = json.loads(obj["Body"].read())
+#     except Exception as e:
+#         print(f"❌ Missing index for {year}/{court}/{bench}: {e}")
+#         continue
+
+#     wanted_pdfs = set(group_df["pdf_name"].dropna())
+
+#     if not wanted_pdfs:
+#         continue
+
+    
+#     for part in index_data["parts"]:
+#         # tar_key = part["key"]
+#         tar_key = f"data/tar/year={year}/court={court}/bench={bench}/{part['name']}"
+#         local_tar = local_group_dir / Path(tar_key).name
+
+#         try:
+#             s3.download_file(BUCKET_NAME, tar_key, str(local_tar))
+#         except Exception as e:
+#             print(f"❌ Failed tar {tar_key}: {e}")
+#             continue
+
+
+
+#         if group_df.empty:
+#             continue
+
+#         with tarfile.open(local_tar) as tar:
+#             for member in tar.getmembers():
+#                 if Path(member.name).name in wanted_pdfs:
+#                     member.name = Path(member.name).name  # flatten path
+#                     tar.extract(member, path=extract_dir)
+
+#         local_tar.unlink(missing_ok=True)
+
+
+# In[16]:
+
 
 for (year, court, bench), group_df in tqdm(groups, desc="Processing groups"):
 
@@ -234,7 +328,6 @@ for (year, court, bench), group_df in tqdm(groups, desc="Processing groups"):
     extract_dir = local_group_dir / "pdfs"
     extract_dir.mkdir(parents=True, exist_ok=True)
 
-    # Load tar index
     index_key = f"data/tar/year={year}/court={court}/bench={bench}/data.index.json"
 
     try:
@@ -244,14 +337,15 @@ for (year, court, bench), group_df in tqdm(groups, desc="Processing groups"):
         print(f"❌ Missing index for {year}/{court}/{bench}: {e}")
         continue
 
-    wanted_pdfs = set(group_df["pdf_name"].dropna())
-
-    if not wanted_pdfs:
+    remaining = set(group_df["pdf_name"].dropna())
+    if not remaining:
         continue
 
-    
     for part in index_data["parts"]:
-        tar_key = part["key"]
+        if not remaining:
+            break
+
+        tar_key = f"data/tar/year={year}/court={court}/bench={bench}/{part['name']}"
         local_tar = local_group_dir / Path(tar_key).name
 
         try:
@@ -260,21 +354,21 @@ for (year, court, bench), group_df in tqdm(groups, desc="Processing groups"):
             print(f"❌ Failed tar {tar_key}: {e}")
             continue
 
-
-
-        if group_df.empty:
-            continue
-
         with tarfile.open(local_tar) as tar:
-            for member in tar.getmembers():
-                if Path(member.name).name in wanted_pdfs:
-                    member.name = Path(member.name).name  # flatten path
+            for member in tar:
+                name = Path(member.name).name
+                if name in remaining:
+                    member.name = name
                     tar.extract(member, path=extract_dir)
+                    remaining.remove(name)
+
+                if not remaining:
+                    break
 
         local_tar.unlink(missing_ok=True)
 
 
-# In[ ]:
+# In[17]:
 
 
 print("\nHigh Court family-law PDFs downloaded")
