@@ -11,6 +11,12 @@ import fitz  # PyMuPDF
 from pathlib import Path
 
 
+# In[ ]:
+
+
+# jupyter nbconvert --to python text_extraction_improved.ipynb
+
+
 # In[2]:
 
 
